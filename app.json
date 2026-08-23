@@ -1,18 +1,43 @@
 {
   "expo": {
-    "name": "E&T Live",
+    "name": "E&T Auctions",
     "slug": "et-live-auctions-clean",
     "scheme": "etlive",
     "version": "2.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+
     "android": {
-      "package": "com.etelectronics.etliveclean",
+      "package": "com.etelectronics.auctions",
       "versionCode": 2,
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
-    "ios": { "supportsTablet": true, "infoPlist": { "NSCameraUsageDescription": "E&T Live uses your camera to broadcast live auctions.", "NSMicrophoneUsageDescription": "E&T Live uses your microphone during live auctions." } },
-    "web": { "bundler": "metro" },
-    "plugins": ["@livekit/react-native-expo-plugin", "@config-plugins/react-native-webrtc", ["expo-image-picker", {"photosPermission":"E&T Live uses your photos for show thumbnails."}]]
+
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "E&T Auctions uses your camera to broadcast live auctions.",
+        "NSMicrophoneUsageDescription": "E&T Auctions uses your microphone during live auctions."
+      }
+    },
+
+    "web": {
+      "bundler": "metro"
+    },
+
+    "plugins": [
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "E&T Auctions uses your photos for show thumbnails."
+        }
+      ]
+    ]
   }
 }
