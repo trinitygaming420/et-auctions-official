@@ -1,0 +1,12 @@
+alter table public.shows add column if not exists category text not null default 'Electronics';
+alter table public.shows add column if not exists tags text[] not null default '{}';
+alter table public.products add column if not exists show_id uuid references public.shows(id) on delete set null;
+alter table public.products add column if not exists is_temporary boolean not null default false;
+create index if not exists shows_schedule_idx on public.shows(seller_id,status,starts_at);
+create index if not exists products_show_idx on public.products(show_id,created_at);
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('show-media','show-media',true,10485760,array['image/jpeg','image/png','image/webp']) on conflict(id) do update set public=true;
+drop policy if exists "public show media" on storage.objects;
+create policy "public show media" on storage.objects for select using(bucket_id='show-media');
+drop policy if exists "seller uploads show media" on storage.objects;
+create policy "seller uploads show media" on storage.objects for insert to authenticated with check(bucket_id='show-media' and (storage.foldername(name))[1]=auth.uid()::text);
+notify pgrst,'reload schema';
