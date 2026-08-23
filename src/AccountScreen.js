@@ -1,33 +1,449 @@
-import React,{useCallback,useEffect,useState}from"react";
-import{Alert,AppState,Linking,Pressable,ScrollView,Text,View}from"react-native";
-import{colors as C,money,supabase}from"./config";
-import{Button,Empty,Field,Header,Stat,s}from"./ui";
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
-export default function AccountScreen({profile,setProfile,user,flash}){
- const[name,setName]=useState(profile?.display_name||""),[page,setPage]=useState("main"),[orders,setOrders]=useState([]),[sellerOrders,setSellerOrders]=useState([]),[following,setFollowing]=useState([]),[rating,setRating]=useState(null),[applications,setApplications]=useState([]),[payouts,setPayouts]=useState([]),[address,setAddress]=useState(profile?.shipping_address||{name:profile?.display_name||"",street1:"",city:"",state:"",zip:"",phone:""}),[stripeBusy,setStripeBusy]=useState(false),[stripeStatus,setStripeStatus]=useState(null);
- const fields="id,subtotal,shipping_total,total,status,payout_status,created_at,tracking_number,shipping_carrier,shipping_label_url,stripe_checkout_session_id,products(title)";
- const load=useCallback(async()=>{const[o,so,f,r]=await Promise.all([supabase.from("orders").select(fields).eq("buyer_id",user.id).order("created_at",{ascending:false}),supabase.from("orders").select(fields).eq("seller_id",user.id).order("created_at",{ascending:false}),supabase.from("follows").select("seller_id,profiles!follows_seller_id_fkey(display_name,seller_approved)").eq("follower_id",user.id),supabase.from("ratings").select("stars").eq("seller_id",user.id)]);setOrders(o.data||[]);setSellerOrders(so.data||[]);setFollowing(f.data||[]);const stars=r.data||[];setRating(stars.length?stars.reduce((a,b)=>a+b.stars,0)/stars.length:null);if(profile?.role==="admin"){const[a,p]=await Promise.all([supabase.from("seller_applications").select("user_id,status,profiles!seller_applications_user_id_fkey(display_name)").eq("status","pending"),supabase.from("orders").select("id,total,seller_net,payout_status,seller_id,profiles!orders_seller_id_fkey(display_name)").in("status",["paid","packed","shipped","delivered"]).order("created_at",{ascending:false})]);setApplications(a.data||[]);setPayouts(p.data||[])}},[profile?.role,user.id]);useEffect(()=>{load()},[load]);
- const save=async()=>{if(!name.trim())return Alert.alert("Name required","Enter the name you want displayed.");const{data,error}=await supabase.rpc("save_my_display_name",{new_name:name.trim()});if(error)Alert.alert("Could not save name",error.message);else{setProfile(data);setName(data.display_name);flash("Name saved")}};
- const approve=async(a,decision)=>{const{error}=await supabase.rpc("admin_review_seller",{target_user:a.user_id,decision});if(error)Alert.alert("Approval failed",error.message);else{flash(`Seller ${decision}`);load()}};
- const release=async(p)=>{const{error}=await supabase.rpc("admin_release_payout",{target_order:p.id});if(error)Alert.alert("Payout failed",error.message);else{flash("Payout released");load()}};
- const setAddressField=(key,value)=>setAddress(a=>({...a,[key]:value}));
- const saveAddress=async()=>{const{error}=await supabase.rpc("save_my_shipping_address",{address_data:address});if(error)Alert.alert("Could not save address",error.message);else{setProfile({...profile,shipping_address:address});flash("Shipping address saved")}};
- const connectStripe=async()=>{setStripeBusy(true);try{const data=await invokeMarketplace({action:"connect_onboarding"});if(!data?.url)throw new Error("Stripe did not return a setup link");await Linking.openURL(data.url)}catch(error){Alert.alert("Setup failed",error.message)}finally{setStripeBusy(false)}};
- const refreshStripe=useCallback(async(showAlert=true)=>{setStripeBusy(true);try{const data=await invokeMarketplace({action:"connect_status"});setStripeStatus(data);setProfile(current=>({...current,stripe_onboarding_complete:data.complete,payouts_enabled:data.payoutsEnabled}));if(showAlert)Alert.alert(data.complete?"Financial setup ready":"Setup still needs attention",data.complete?"Payments and payouts are enabled.":data.currentlyDue?.length?`${data.currentlyDue.length} Stripe requirement(s) remain. Tap Continue financial setup.`:"Stripe is still reviewing or enabling this account. Please check again shortly.")}catch(error){if(showAlert)Alert.alert("Could not refresh",error.message)}finally{setStripeBusy(false)}},[setProfile]);
- useEffect(()=>{if(page!=="sellerSetup")return;refreshStripe(false);const sub=AppState.addEventListener("change",state=>{if(state==="active")refreshStripe(false)});return()=>sub.remove()},[page,refreshStripe]);
- if(page!=="main")return <SubPage title={{orders:"MY ORDERS",shipping:"PACK & SHIP",sellerSetup:"FINANCIAL SETUP",address:"SHIPPING ADDRESS",following:"FOLLOWING",approvals:"SELLER APPROVALS",payouts:"SELLER PAYOUTS"}[page]} back={()=>setPage("main")}>
-  {page==="orders"&&(!orders.length?<Empty title="No orders yet"/>:orders.map(o=><BuyerOrder key={o.id} order={o} refresh={load}/>))}
-  {page==="shipping"&&(!sellerOrders.length?<Empty title="No seller orders yet"/>:sellerOrders.map(o=><SellerOrder key={o.id} order={o} refresh={load}/>))}
-  {page==="sellerSetup"&&<View style={s.panel}><Text style={s.section}>Stripe financial setup</Text><Text style={s.muted}>Stripe securely collects identity, tax and bank information. E&T Live does not store your bank account or identity documents.</Text><Stat label="Identity details" value={stripeStatus?.detailsSubmitted||profile?.stripe_onboarding_complete?"Submitted":"Required"}/><Stat label="Customer payments" value={stripeStatus?.chargesEnabled||profile?.stripe_onboarding_complete?"Enabled":"Not enabled"}/><Stat label="Seller payouts" value={stripeStatus?.payoutsEnabled||profile?.payouts_enabled?"Enabled":"Not enabled"}/>{stripeStatus?.disabledReason&&<Text style={{color:C.red}}>Stripe status: {stripeStatus.disabledReason.replaceAll("_"," ")}</Text>}{stripeStatus?.currentlyDue?.length>0&&<View style={s.warning}><Text style={s.title}>Information still required</Text><Text style={s.muted}>{stripeStatus.currentlyDue.map(f=>f.split(".").pop().replaceAll("_"," ")).join(", ")}</Text></View>}<Button disabled={stripeBusy} title={stripeBusy?"Opening Stripe…":profile?.stripe_onboarding_complete?"Review financial setup":"Start or continue financial setup"} onPress={connectStripe}/><Button ghost disabled={stripeBusy} title={stripeBusy?"Checking…":"Refresh setup status"} onPress={()=>refreshStripe(true)}/></View>}
-  {page==="address"&&<View style={s.panel}><Text style={s.section}>Shipping address</Text><Text style={s.muted}>Buyers use this as their delivery address. Sellers use it as the return address printed on labels.</Text><Field label="Full name" value={address.name||""} onChangeText={v=>setAddressField("name",v)}/><Field label="Street address" value={address.street1||""} onChangeText={v=>setAddressField("street1",v)}/><Field label="City" value={address.city||""} onChangeText={v=>setAddressField("city",v)}/><Field label="State (2 letters)" value={address.state||""} onChangeText={v=>setAddressField("state",v)}/><Field label="ZIP code" value={address.zip||""} onChangeText={v=>setAddressField("zip",v)} keyboardType="number-pad"/><Field label="Phone" value={address.phone||""} onChangeText={v=>setAddressField("phone",v)} keyboardType="phone-pad"/><Button title="Save shipping address" onPress={saveAddress}/></View>}
-  {page==="following"&&(!following.length?<Empty title="You are not following sellers yet"/>:following.map(f=><View key={f.seller_id} style={s.activity}><Text style={{fontSize:24,color:C.orange}}>●</Text><Text style={[s.title,{flex:1}]}>{f.profiles?.display_name}</Text>{f.profiles?.seller_approved&&<Text style={s.badge}>✓ VERIFIED</Text>}</View>))}
-  {page==="approvals"&&(!applications.length?<Empty title="No seller requests waiting"/>:applications.map(a=><View key={a.user_id} style={s.panel}><Text style={s.title}>{a.profiles?.display_name||"Seller"}</Text><Text style={s.muted}>Application pending</Text><View style={s.row}><Button small title="Approve" onPress={()=>approve(a,"approved")}/><Button small danger title="Decline" onPress={()=>approve(a,"declined")}/></View></View>))}
-  {page==="payouts"&&(!payouts.length?<Empty title="No payouts waiting"/>:payouts.map(p=><View key={p.id} style={s.panel}><Text style={s.title}>{p.profiles?.display_name||"Seller"}</Text><Stat label="Order total" value={money(p.total)}/><Stat label="Seller receives" value={money(p.seller_net)}/><Stat label="Status" value={p.payout_status}/>{p.payout_status!=="released"&&<Button title="Release payout" onPress={()=>release(p)}/>}</View>))}
- </SubPage>;
- return <ScrollView contentContainerStyle={s.page}><Header title="ACCOUNT" subtitle={user.email} profile={profile}/><View style={[s.panel,s.row]}><View style={{width:68,height:68,borderRadius:34,borderWidth:2,borderColor:C.orange,alignItems:"center",justifyContent:"center"}}><Text style={{color:C.orange,fontSize:23,fontWeight:"900"}}>{(profile?.display_name||"ET").slice(0,2).toUpperCase()}</Text></View><View style={{flex:1}}><Text style={s.logo}>{profile?.display_name}</Text>{profile?.seller_approved?<Text style={s.badge}>✓ VERIFIED SELLER</Text>:<Text style={s.muted}>Buyer account</Text>}<Text style={s.muted}>{rating?`${rating.toFixed(1)} ★ seller rating`:"No seller ratings yet"}</Text></View></View><View style={s.panel}><Field label="Display name" value={name} onChangeText={setName}/><Button title="Save name" onPress={save}/></View><Link icon="📍" title="Shipping address" value={profile?.shipping_address?"Saved":"Required"} onPress={()=>setPage("address")}/><Link icon="📦" title="My orders" value={orders.length} onPress={()=>setPage("orders")}/>{profile?.seller_approved&&<><Link icon="$" title="Financial setup" value={profile?.payouts_enabled?"Ready":"Required"} onPress={()=>setPage("sellerSetup")}/><Link icon="🚚" title="Pack and ship orders" value={sellerOrders.filter(o=>["paid","packed"].includes(o.status)).length} onPress={()=>setPage("shipping")}/></>}<Link icon="♥" title="Following" value={following.length} onPress={()=>setPage("following")}/><Link icon="★" title="Ratings" value={rating?rating.toFixed(1):"—"}/>{(profile?.role==="admin"||user.email?.toLowerCase()==="xxtgxxgangxx@gmail.com")&&<><Text style={s.section}>Administrator controls</Text><Link icon="✓" title="Seller approvals" value={applications.length} onPress={()=>setPage("approvals")}/><Link icon="$" title="Seller payouts" value={payouts.filter(p=>p.payout_status!=="released").length} onPress={()=>setPage("payouts")}/></>}<Button danger title="Sign out" onPress={()=>supabase.auth.signOut()}/></ScrollView>;
+import {
+  Alert,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
+
+import {
+  money,
+  supabase,
+} from "./config";
+
+import {
+  Button,
+  Empty,
+  Header,
+  s,
+} from "./ui";
+
+export default function ActivityScreen({
+  profile,
+  user,
+  flash,
+}) {
+  const [orders, setOrders] = useState([]);
+  const [requestingId, setRequestingId] =
+    useState(null);
+
+  const load = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select(`
+        id,
+        buyer_id,
+        seller_id,
+        subtotal,
+        shipping_total,
+        total,
+        platform_fee,
+        seller_payout_amount,
+        status,
+        payout_status,
+        payout_eligible_at,
+        delivered_at,
+        created_at,
+        tracking_number,
+        shipping_carrier,
+        products(title)
+      `)
+      .or(
+        `buyer_id.eq.${user.id},seller_id.eq.${user.id}`
+      )
+      .order("created_at", {
+        ascending: false,
+      })
+      .limit(30);
+
+    if (error) {
+      console.log(
+        "Could not load activity:",
+        error.message
+      );
+      return;
+    }
+
+    setOrders(data || []);
+  }, [user.id]);
+
+  useEffect(() => {
+    load();
+
+    const channel = supabase
+      .channel(`activity-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+        },
+        () => load()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [load, user.id]);
+
+  async function requestPayout(order) {
+    if (requestingId) {
+      return;
+    }
+
+    try {
+      setRequestingId(order.id);
+
+      const {
+        data,
+        error,
+      } = await supabase.functions.invoke(
+        "marketplace-api",
+        {
+          body: {
+            action: "request_payout",
+            orderId: order.id,
+          },
+        }
+      );
+
+      if (error) {
+        let message =
+          error.message ||
+          "Unable to request payout.";
+
+        try {
+          const details =
+            await error.context.json();
+
+          message =
+            details?.error ||
+            message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      flash?.(
+        "Payout request submitted"
+      );
+
+      Alert.alert(
+        "Payout Requested",
+        "Your payout request was sent to E&T Auctions for review."
+      );
+
+      await load();
+    } catch (error) {
+      Alert.alert(
+        "Payout Request",
+        error?.message ||
+          "Unable to request payout."
+      );
+    } finally {
+      setRequestingId(null);
+    }
+  }
+
+  function renderPayoutArea(order) {
+    const isSeller =
+      order.seller_id === user.id;
+
+    if (!isSeller) {
+      return null;
+    }
+
+    const status = String(
+      order.status || ""
+    ).toLowerCase();
+
+    const payoutStatus = String(
+      order.payout_status ||
+        "not_requested"
+    ).toLowerCase();
+
+    if (payoutStatus === "paid") {
+      return (
+        <Text
+          style={{
+            color: "#61D68A",
+            fontWeight: "900",
+            marginTop: 8,
+          }}
+        >
+          ✓ Seller payout paid
+        </Text>
+      );
+    }
+
+    if (
+      payoutStatus === "requested"
+    ) {
+      return (
+        <Text
+          style={{
+            color: "#FFB347",
+            fontWeight: "900",
+            marginTop: 8,
+          }}
+        >
+          Payout request pending
+        </Text>
+      );
+    }
+
+    if (
+      payoutStatus === "reversed"
+    ) {
+      return (
+        <Text
+          style={{
+            color: "#FFB347",
+            fontWeight: "900",
+            marginTop: 8,
+          }}
+        >
+          Payout reversed
+        </Text>
+      );
+    }
+
+    const payoutRequestAllowed =
+      status === "shipped" ||
+      status === "delivered" ||
+      status === "completed";
+
+    if (!payoutRequestAllowed) {
+      return (
+        <Text
+          style={[
+            s.muted,
+            {
+              marginTop: 8,
+            },
+          ]}
+        >
+          Payout request available
+          after shipment
+        </Text>
+      );
+    }
+
+    if (
+      payoutStatus === "rejected"
+    ) {
+      return (
+        <Button
+          disabled={
+            requestingId === order.id
+          }
+          title={
+            requestingId === order.id
+              ? "Requesting…"
+              : "Request Payout Again"
+          }
+          onPress={() =>
+            requestPayout(order)
+          }
+        />
+      );
+    }
+
+    return (
+      <Button
+        disabled={
+          requestingId === order.id
+        }
+        title={
+          requestingId === order.id
+            ? "Requesting…"
+            : "Request Payout"
+        }
+        onPress={() =>
+          requestPayout(order)
+        }
+      />
+    );
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={s.page}
+    >
+      <Header
+        title="ACTIVITY"
+        subtitle="Orders and marketplace updates"
+        profile={profile}
+      />
+
+      <Text style={s.section}>
+        Recent activity
+      </Text>
+
+      {!orders.length && (
+        <Empty
+          icon="🔔"
+          title="No activity yet"
+          subtitle="Bids, orders and shipping updates appear here."
+        />
+      )}
+
+      {orders.map(order => {
+        const isSeller =
+          order.seller_id === user.id;
+
+        const isBuyer =
+          order.buyer_id === user.id;
+
+        const sellerAmount =
+          Number(
+            order.seller_payout_amount ||
+              0
+          );
+
+        const total =
+          Number(order.total || 0);
+
+        return (
+          <View
+            key={order.id}
+            style={[
+              s.activity,
+              {
+                alignItems:
+                  "flex-start",
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontSize: 25,
+                marginTop: 2,
+              }}
+            >
+              📦
+            </Text>
+
+            <View
+              style={{
+                flex: 1,
+              }}
+            >
+              <Text style={s.title}>
+                {order.products
+                  ?.title ||
+                  "Marketplace order"}
+              </Text>
+
+              <Text style={s.muted}>
+                {isSeller
+                  ? "Seller order"
+                  : isBuyer
+                  ? "Buyer order"
+                  : "Order"}
+              </Text>
+
+              <Text style={s.muted}>
+                Status:{" "}
+                {String(
+                  order.status ||
+                    "unknown"
+                ).replaceAll(
+                  "_",
+                  " "
+                )}
+              </Text>
+
+              {isSeller && (
+                <>
+                  <Text
+                    style={s.muted}
+                  >
+                    Payout:{" "}
+                    {String(
+                      order.payout_status ||
+                        "not requested"
+                    ).replaceAll(
+                      "_",
+                      " "
+                    )}
+                  </Text>
+
+                  {sellerAmount >
+                    0 && (
+                    <Text
+                      style={[
+                        s.muted,
+                        {
+                          marginTop: 4,
+                        },
+                      ]}
+                    >
+                      Seller receives:{" "}
+                      {money(
+                        sellerAmount
+                      )}
+                    </Text>
+                  )}
+
+                  {Number(
+                    order.platform_fee ||
+                      0
+                  ) > 0 && (
+                    <Text
+                      style={
+                        s.muted
+                      }
+                    >
+                      E&T fee:{" "}
+                      {money(
+                        order.platform_fee
+                      )}
+                    </Text>
+                  )}
+
+                  {renderPayoutArea(
+                    order
+                  )}
+                </>
+              )}
+
+              {order.tracking_number && (
+                <Text
+                  style={[
+                    s.muted,
+                    {
+                      marginTop: 5,
+                    },
+                  ]}
+                >
+                  Tracking:{" "}
+                  {order.shipping_carrier ||
+                    "Carrier"}{" "}
+                  {
+                    order.tracking_number
+                  }
+                </Text>
+              )}
+            </View>
+
+            <Text style={s.price}>
+              {money(total)}
+            </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
 }
-function Link({icon,title,value,onPress}){return <Pressable onPress={onPress} style={[s.activity,{minHeight:60}]}><Text style={{fontSize:21,color:C.orange,width:26}}>{icon}</Text><Text style={[s.title,{flex:1}]}>{title}</Text><Text style={s.muted}>{value}  ›</Text></Pressable>}
-function BuyerOrder({order,refresh}){const checkout=async()=>{const{data,error}=await supabase.functions.invoke("marketplace-api",{body:{action:"create_checkout",orderId:order.id}});if(error||!data?.url)Alert.alert("Checkout failed",data?.error||error?.message);else Linking.openURL(data.url)};const verify=async()=>{const{data,error}=await supabase.functions.invoke("marketplace-api",{body:{action:"verify_checkout",orderId:order.id}});if(error)Alert.alert("Could not verify",error.message);else{Alert.alert(data.paid?"Payment received":"Payment not completed",data.paid?"The seller can now pack your order.":"Complete Stripe checkout, then try again.");refresh()}};const track=()=>Linking.openURL(`https://www.google.com/search?q=${encodeURIComponent(`${order.shipping_carrier||"carrier"} tracking ${order.tracking_number}`)}`);return <View style={s.panel}><View style={s.between}><Text style={s.title}>{order.products?.title||"Order"}</Text><Text style={s.price}>{money(order.total)}</Text></View><Text style={s.muted}>Status: {order.status.replaceAll("_"," ")}</Text>{order.status==="payment_due"&&<><Button title="Calculate shipping & pay" onPress={checkout}/><Button ghost title="I paid — check payment" onPress={verify}/></>} {order.tracking_number&&<><Text style={s.text}>{order.shipping_carrier}: {order.tracking_number}</Text><Button ghost title="Track package" onPress={track}/></>}</View>}
-function SellerOrder({order,refresh}){const pack=async()=>{const{error}=await supabase.rpc("seller_pack_order",{target_order:order.id});if(error)Alert.alert("Could not pack",error.message);else refresh()};const label=async()=>{const{data,error}=await supabase.functions.invoke("marketplace-api",{body:{action:"buy_label",orderId:order.id}});if(error||!data?.labelUrl)Alert.alert("Label failed",data?.error||error?.message);else{refresh();Linking.openURL(data.labelUrl)}};return <View style={s.panel}><View style={s.between}><Text style={s.title}>{order.products?.title||"Order"}</Text><Text style={s.price}>{money(order.total)}</Text></View><Text style={s.muted}>Status: {order.status}</Text>{order.status==="paid"&&<Button title="Mark packed" onPress={pack}/>} {order.status==="packed"&&<Button title="Purchase & print prepaid label" onPress={label}/>} {order.shipping_label_url&&<Button ghost title="Open shipping label" onPress={()=>Linking.openURL(order.shipping_label_url)}/>}</View>}
-function SubPage({title,back,children}){return <ScrollView contentContainerStyle={s.page}><View style={s.modalHeader}><Pressable onPress={back}><Text style={s.back}>‹</Text></Pressable><Text style={s.logo}>{title}</Text></View>{children}</ScrollView>}
-async function invokeMarketplace(body){const{data,error}=await supabase.functions.invoke("marketplace-api",{body});if(error){let message=error.message||"Marketplace service failed";try{const details=await error.context.json();message=details?.error||message}catch{}throw new Error(message)}if(data?.error)throw new Error(data.error);return data}
