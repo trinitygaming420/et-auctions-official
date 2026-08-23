@@ -1,0 +1,9 @@
+import React,{useState}from"react";
+import{Alert,SafeAreaView,Text,View}from"react-native";
+import{colors as C,supabase}from"./config";
+import{Button,Field,s}from"./ui";
+export default function AuthScreen(){
+ const[email,setEmail]=useState(""),[password,setPassword]=useState(""),[name,setName]=useState(""),[signup,setSignup]=useState(false),[busy,setBusy]=useState(false);
+ const submit=async()=>{if(!email||!password||(signup&&!name))return Alert.alert("Missing information","Complete every field.");setBusy(true);const result=signup?await supabase.auth.signUp({email:email.trim(),password,options:{data:{display_name:name.trim()}}}):await supabase.auth.signInWithPassword({email:email.trim(),password});setBusy(false);if(result.error)Alert.alert("Account error",result.error.message);else if(signup&&!result.data.session)Alert.alert("Check your email","Open the confirmation email, then sign in.");};
+ return <SafeAreaView style={s.safe}><View style={{flex:1,justifyContent:"center",padding:26,gap:18}}><Text style={{color:C.orange,fontSize:38,fontWeight:"900"}}>E&T LIVE</Text><Text style={{color:C.text,fontSize:28,fontWeight:"800"}}>{signup?"Create your account":"Welcome back"}</Text><Text style={s.muted}>Live electronics auctions from approved sellers.</Text>{signup&&<Field label="Display name" value={name} onChangeText={setName} placeholder="Your name or shop"/>}<Field label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="email@example.com"/><Field label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="At least 6 characters"/><Button disabled={busy} title={busy?"Please wait…":signup?"Create account":"Sign in"} onPress={submit}/><Button ghost title={signup?"Already have an account? Sign in":"New here? Create account"} onPress={()=>setSignup(!signup)}/></View></SafeAreaView>;
+}
