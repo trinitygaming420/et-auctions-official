@@ -1,0 +1,30 @@
+{
+  "name": "et-live-auctions-clean",
+  "version": "2.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "build:apk": "eas build --platform android --profile preview",
+    "build:play": "eas build --platform android --profile production",
+    "build:store": "eas build --platform android --profile production",
+    "doctor": "expo-doctor"
+  },
+  "dependencies": {
+    "@config-plugins/react-native-webrtc": "13.0.0",
+    "@livekit/react-native": "2.12.0",
+    "@livekit/react-native-expo-plugin": "1.0.2",
+    "@livekit/react-native-webrtc": "144.1.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.57.4",
+    "expo": "~54.0.37",
+    "expo-image-picker": "~17.0.11",
+    "expo-status-bar": "~3.0.9",
+    "livekit-client": "2.19.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-url-polyfill": "^3.0.0"
+  }
+}

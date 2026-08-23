@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "E&T Live",
+    "slug": "et-live-auctions-clean",
+    "scheme": "etlive",
+    "version": "2.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.etelectronics.etliveclean",
+      "versionCode": 2,
+      "edgeToEdgeEnabled": true
+    },
+    "ios": { "supportsTablet": true, "infoPlist": { "NSCameraUsageDescription": "E&T Live uses your camera to broadcast live auctions.", "NSMicrophoneUsageDescription": "E&T Live uses your microphone during live auctions." } },
+    "web": { "bundler": "metro" },
+    "plugins": ["@livekit/react-native-expo-plugin", "@config-plugins/react-native-webrtc", ["expo-image-picker", {"photosPermission":"E&T Live uses your photos for show thumbnails."}]]
+  }
+}
