@@ -6,7 +6,6 @@
     "version": "2.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-
     "android": {
       "package": "com.etelectronics.auctions",
       "versionCode": 2,
@@ -16,7 +15,6 @@
         "android.permission.RECORD_AUDIO"
       ]
     },
-
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -24,11 +22,9 @@
         "NSMicrophoneUsageDescription": "E&T Auctions uses your microphone during live auctions."
       }
     },
-
     "web": {
       "bundler": "metro"
     },
-
     "plugins": [
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc",
@@ -40,3 +36,4 @@
       ]
     ]
   }
+}
