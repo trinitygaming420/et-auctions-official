@@ -1,8 +1,0 @@
-[functions.livekit-token]
-verify_jwt = false
-
-[functions.marketplace-api]
-verify_jwt = true
-
-[functions.marketplace-return]
-verify_jwt = false
