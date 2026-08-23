@@ -2,7 +2,9 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 
-export const LIVEKIT_URL = "wss://project-e-t-auctions-v8gsnc5i.livekit.cloud";
+export const LIVEKIT_URL =
+  "wss://project-e-t-auctions-v8gsnc5i.livekit.cloud";
+
 export const supabase = createClient(
   "https://jvyiisvxvjiykqagffpq.supabase.co",
   "sb_publishable_w-37jRWUXPYTEGLlrT89uw_Eh7EIu9K",
@@ -13,7 +15,7 @@ export const supabase = createClient(
       autoRefreshToken: true,
       detectSessionInUrl: false,
     },
-  },
+  }
 );
 
 export const colors = {
@@ -28,4 +30,5 @@ export const colors = {
   line: "#252C39",
 };
 
-export const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+export const money = (value) =>
+  `$${Number(value || 0).toFixed(2)}`;
