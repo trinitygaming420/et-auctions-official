@@ -1,4 +1,4 @@
-name: Build Testing APK
+name: Build Second Phone APK
 
 on:
   workflow_dispatch:
@@ -26,6 +26,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create second-phone test package
+        run: |
+          node -e "
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('app.json','utf8'));
+          p.expo.name='E&T Auctions Test';
+          p.expo.android.package='com.etelectronics.auctions.secondphone';
+          p.expo.android.versionCode=3;
+          fs.writeFileSync('app.json',JSON.stringify(p,null,2));
+          "
+
       - name: Create Android project
         run: npx expo prebuild --platform android --clean
         env:
@@ -40,9 +51,13 @@ jobs:
         env:
           NODE_ENV: production
 
-      - name: Upload release APK
+      - name: Verify APK
+        run: |
+          $ANDROID_HOME/build-tools/36.0.0/apksigner verify --verbose android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ET-Auctions-Testing-APK
+          name: ET-Auctions-Second-Phone
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
