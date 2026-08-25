@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
 import {
   Alert,
   AppState,
@@ -9,8 +14,20 @@ import {
   View,
 } from "react-native";
 
-import { colors as C, money, supabase } from "./config";
-import { Button, Empty, Field, Header, Stat, s } from "./ui";
+import {
+  colors as C,
+  money,
+  supabase,
+} from "./config";
+
+import {
+  Button,
+  Empty,
+  Field,
+  Header,
+  Stat,
+  s,
+} from "./ui";
 
 export default function AccountScreen({
   profile,
@@ -18,34 +35,90 @@ export default function AccountScreen({
   user,
   flash,
 }) {
-  const [name, setName] = useState(profile?.display_name || "");
-  const [page, setPage] = useState("main");
-  const [orders, setOrders] = useState([]);
-  const [sellerOrders, setSellerOrders] = useState([]);
-  const [following, setFollowing] = useState([]);
-  const [rating, setRating] = useState(null);
-  const [applications, setApplications] = useState([]);
-  const [payouts, setPayouts] = useState([]);
-  const [payoutOrders, setPayoutOrders] = useState({});
-  const [stripeBusy, setStripeBusy] = useState(false);
-  const [stripeStatus, setStripeStatus] = useState(null);
-  const [payoutBusy, setPayoutBusy] = useState(null);
-
-  const [address, setAddress] = useState(
-    profile?.shipping_address || {
-      name: profile?.display_name || "",
-      street1: "",
-      city: "",
-      state: "",
-      zip: "",
-      phone: "",
-    }
+  const [name, setName] = useState(
+    profile?.display_name || ""
   );
 
+  const [page, setPage] =
+    useState("main");
+
+  const [orders, setOrders] =
+    useState([]);
+
+  const [
+    sellerOrders,
+    setSellerOrders,
+  ] = useState([]);
+
+  const [
+    following,
+    setFollowing,
+  ] = useState([]);
+
+  const [rating, setRating] =
+    useState(null);
+
+  const [
+    applications,
+    setApplications,
+  ] = useState([]);
+
+  const [
+    payouts,
+    setPayouts,
+  ] = useState([]);
+
+  const [
+    payoutOrders,
+    setPayoutOrders,
+  ] = useState({});
+
+  const [
+    stripeBusy,
+    setStripeBusy,
+  ] = useState(false);
+
+  const [
+    stripeStatus,
+    setStripeStatus,
+  ] = useState(null);
+
+  const [
+    payoutBusy,
+    setPayoutBusy,
+  ] = useState(null);
+
+  const [address, setAddress] =
+    useState(
+      profile?.shipping_address || {
+        name:
+          profile?.display_name ||
+          "",
+        street1: "",
+        city: "",
+        state: "",
+        zip: "",
+        phone: "",
+      }
+    );
+
+  /*
+   * IMPORTANT:
+   * Product details are NOT joined
+   * directly in this query.
+   *
+   * Orders are loaded first.
+   * Product titles are loaded separately.
+   *
+   * That prevents a bad relationship
+   * query from making My Orders appear
+   * as zero.
+   */
   const orderFields = `
     id,
     buyer_id,
     seller_id,
+    product_id,
     subtotal,
     shipping_total,
     total,
@@ -59,364 +132,619 @@ export default function AccountScreen({
     tracking_number,
     shipping_carrier,
     shipping_label_url,
-    stripe_checkout_session_id,
-    products(title)
+    stripe_checkout_session_id
   `;
 
-  const load = useCallback(async () => {
-    try {
-      const [buyerResult, sellerResult, followingResult, ratingResult] =
-        await Promise.all([
+  const load =
+    useCallback(async () => {
+      try {
+        const [
+          buyerResult,
+          sellerResult,
+          followingResult,
+          ratingResult,
+        ] = await Promise.all([
           supabase
             .from("orders")
             .select(orderFields)
-            .eq("buyer_id", user.id)
-            .order("created_at", { ascending: false }),
+            .eq(
+              "buyer_id",
+              user.id
+            )
+            .order(
+              "created_at",
+              {
+                ascending: false,
+              }
+            ),
 
           supabase
             .from("orders")
             .select(orderFields)
-            .eq("seller_id", user.id)
-            .order("created_at", { ascending: false }),
+            .eq(
+              "seller_id",
+              user.id
+            )
+            .order(
+              "created_at",
+              {
+                ascending: false,
+              }
+            ),
 
           supabase
             .from("follows")
             .select(
               "seller_id,profiles!follows_seller_id_fkey(display_name,seller_approved)"
             )
-            .eq("follower_id", user.id),
+            .eq(
+              "follower_id",
+              user.id
+            ),
 
           supabase
             .from("ratings")
             .select("stars")
-            .eq("seller_id", user.id),
+            .eq(
+              "seller_id",
+              user.id
+            ),
         ]);
 
-      if (buyerResult.error) {
-        console.log("Buyer orders error:", buyerResult.error.message);
-      }
+        /*
+         * BUYER ORDERS
+         */
+        if (
+          buyerResult.error
+        ) {
+          console.error(
+            "BUYER_ORDER_LOAD_ERROR:",
+            buyerResult.error
+          );
 
-      if (sellerResult.error) {
-        console.log("Seller orders error:", sellerResult.error.message);
-      }
+          Alert.alert(
+            "My Orders error",
+            buyerResult.error
+              .message
+          );
 
-      if (followingResult.error) {
-        console.log("Following error:", followingResult.error.message);
-      }
+          setOrders([]);
+        } else {
+          const buyerOrders =
+            await addProductTitles(
+              buyerResult.data ||
+                []
+            );
 
-      if (ratingResult.error) {
-        console.log("Ratings error:", ratingResult.error.message);
-      }
-
-      setOrders(buyerResult.data || []);
-      setSellerOrders(sellerResult.data || []);
-      setFollowing(followingResult.data || []);
-
-      const stars = ratingResult.data || [];
-
-      setRating(
-        stars.length
-          ? stars.reduce(
-              (sum, item) => sum + Number(item.stars || 0),
-              0
-            ) / stars.length
-          : null
-      );
-
-      if (profile?.role === "admin") {
-        const applicationsResult = await supabase
-          .from("seller_applications")
-          .select(
-            "user_id,status,profiles!seller_applications_user_id_fkey(display_name)"
-          )
-          .eq("status", "pending");
-
-        if (applicationsResult.error) {
           console.log(
-            "Seller applications error:",
-            applicationsResult.error.message
+            "BUYER_ORDERS_LOADED:",
+            buyerOrders.length
+          );
+
+          setOrders(
+            buyerOrders
           );
         }
 
-        setApplications(applicationsResult.data || []);
+        /*
+         * SELLER ORDERS
+         */
+        if (
+          sellerResult.error
+        ) {
+          console.error(
+            "SELLER_ORDER_LOAD_ERROR:",
+            sellerResult.error
+          );
 
-        try {
-          const payoutData = await invokeMarketplace({
-            action: "admin_payout_requests",
-          });
+          setSellerOrders(
+            []
+          );
+        } else {
+          const loadedSellerOrders =
+            await addProductTitles(
+              sellerResult.data ||
+                []
+            );
 
-          const requests = payoutData?.requests || [];
+          setSellerOrders(
+            loadedSellerOrders
+          );
+        }
 
-          setPayouts(requests);
+        /*
+         * FOLLOWING
+         */
+        if (
+          followingResult.error
+        ) {
+          console.error(
+            "FOLLOWING_LOAD_ERROR:",
+            followingResult.error
+          );
+        }
 
-          const orderIds = [
-            ...new Set(
-              requests
-                .map((item) => item.order_id)
-                .filter(Boolean)
-            ),
-          ];
+        setFollowing(
+          followingResult.data ||
+            []
+        );
 
-          if (orderIds.length) {
-            const {
-              data: payoutOrderRows,
-              error: payoutOrdersError,
-            } = await supabase
-              .from("orders")
-              .select(
-                "id,total,status,payout_status,payout_eligible_at,delivered_at,products(title)"
+        /*
+         * RATINGS
+         */
+        if (
+          ratingResult.error
+        ) {
+          console.error(
+            "RATINGS_LOAD_ERROR:",
+            ratingResult.error
+          );
+        }
+
+        const stars =
+          ratingResult.data ||
+          [];
+
+        setRating(
+          stars.length
+            ? stars.reduce(
+                (
+                  total,
+                  item
+                ) =>
+                  total +
+                  Number(
+                    item.stars ||
+                      0
+                  ),
+                0
+              ) /
+              stars.length
+            : null
+        );
+
+        /*
+         * ADMIN
+         */
+        if (
+          profile?.role ===
+          "admin"
+        ) {
+          const applicationsResult =
+            await supabase
+              .from(
+                "seller_applications"
               )
-              .in("id", orderIds);
+              .select(
+                "user_id,status,profiles!seller_applications_user_id_fkey(display_name)"
+              )
+              .eq(
+                "status",
+                "pending"
+              );
 
-            if (payoutOrdersError) {
-              console.log(
-                "Payout order load error:",
-                payoutOrdersError.message
+          if (
+            applicationsResult.error
+          ) {
+            console.error(
+              "SELLER_APPLICATION_ERROR:",
+              applicationsResult.error
+            );
+          }
+
+          setApplications(
+            applicationsResult.data ||
+              []
+          );
+
+          try {
+            const payoutData =
+              await invokeMarketplace({
+                action:
+                  "admin_payout_requests",
+              });
+
+            const requests =
+              payoutData?.requests ||
+              [];
+
+            setPayouts(
+              requests
+            );
+
+            const orderIds = [
+              ...new Set(
+                requests
+                  .map(
+                    (item) =>
+                      item.order_id
+                  )
+                  .filter(Boolean)
+              ),
+            ];
+
+            if (
+              orderIds.length
+            ) {
+              const {
+                data:
+                  payoutOrderRows,
+                error:
+                  payoutOrdersError,
+              } =
+                await supabase
+                  .from(
+                    "orders"
+                  )
+                  .select(
+                    `
+                      id,
+                      product_id,
+                      total,
+                      status,
+                      payout_status,
+                      payout_eligible_at,
+                      delivered_at
+                    `
+                  )
+                  .in(
+                    "id",
+                    orderIds
+                  );
+
+              if (
+                payoutOrdersError
+              ) {
+                console.error(
+                  "PAYOUT_ORDER_ERROR:",
+                  payoutOrdersError
+                );
+
+                setPayoutOrders(
+                  {}
+                );
+              } else {
+                const enriched =
+                  await addProductTitles(
+                    payoutOrderRows ||
+                      []
+                  );
+
+                const nextMap =
+                  {};
+
+                for (
+                  const row of
+                  enriched
+                ) {
+                  nextMap[
+                    row.id
+                  ] = row;
+                }
+
+                setPayoutOrders(
+                  nextMap
+                );
+              }
+            } else {
+              setPayoutOrders(
+                {}
               );
             }
+          } catch (error) {
+            console.error(
+              "ADMIN_PAYOUT_ERROR:",
+              error
+            );
 
-            const nextMap = {};
-
-            for (const row of payoutOrderRows || []) {
-              nextMap[row.id] = row;
-            }
-
-            setPayoutOrders(nextMap);
-          } else {
-            setPayoutOrders({});
+            setPayouts([]);
+            setPayoutOrders(
+              {}
+            );
           }
-        } catch (error) {
-          console.log(
-            "Admin payout load error:",
-            error.message
-          );
-
+        } else {
+          setApplications([]);
           setPayouts([]);
-          setPayoutOrders({});
+          setPayoutOrders(
+            {}
+          );
         }
-      } else {
-        setApplications([]);
-        setPayouts([]);
-        setPayoutOrders({});
-      }
-    } catch (error) {
-      console.log(
-        "Account load error:",
-        error?.message || error
-      );
-    }
-  }, [profile?.role, user.id]);
+      } catch (error) {
+        console.error(
+          "ACCOUNT_LOAD_ERROR:",
+          error
+        );
 
+        Alert.alert(
+          "Account error",
+          error?.message ||
+            String(error)
+        );
+      }
+    }, [
+      profile?.role,
+      user.id,
+    ]);
+
+  /*
+   * INITIAL LOAD
+   */
   useEffect(() => {
     load();
   }, [load]);
 
+  /*
+   * REALTIME ORDER UPDATES
+   */
   useEffect(() => {
-    const channel = supabase
-      .channel(`account-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "orders",
-        },
-        () => load()
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "payout_requests",
-        },
-        () => load()
-      )
-      .subscribe();
+    const channel =
+      supabase
+        .channel(
+          `account-${user.id}`
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "orders",
+          },
+          () => load()
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table:
+              "payout_requests",
+          },
+          () => load()
+        )
+        .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(
+        channel
+      );
     };
   }, [load, user.id]);
 
-  const saveName = async () => {
-    if (!name.trim()) {
-      Alert.alert(
-        "Name required",
-        "Enter the name you want displayed."
-      );
+  /*
+   * SAVE DISPLAY NAME
+   */
+  const saveName =
+    async () => {
+      if (!name.trim()) {
+        Alert.alert(
+          "Name required",
+          "Enter the name you want displayed."
+        );
 
-      return;
-    }
-
-    const { data, error } = await supabase.rpc(
-      "save_my_display_name",
-      {
-        new_name: name.trim(),
+        return;
       }
-    );
 
-    if (error) {
-      Alert.alert(
-        "Could not save name",
-        error.message
-      );
+      const {
+        data,
+        error,
+      } =
+        await supabase.rpc(
+          "save_my_display_name",
+          {
+            new_name:
+              name.trim(),
+          }
+        );
 
-      return;
-    }
+      if (error) {
+        Alert.alert(
+          "Could not save name",
+          error.message
+        );
 
-    setProfile(data);
-
-    setName(
-      data?.display_name || name.trim()
-    );
-
-    flash?.("Name saved");
-  };
-
-  const reviewSeller = async (
-    application,
-    decision
-  ) => {
-    const { error } = await supabase.rpc(
-      "admin_review_seller",
-      {
-        target_user: application.user_id,
-        decision,
+        return;
       }
-    );
 
-    if (error) {
-      Alert.alert(
-        "Approval failed",
-        error.message
+      setProfile(data);
+
+      setName(
+        data?.display_name ||
+          name.trim()
       );
 
-      return;
-    }
+      flash?.(
+        "Name saved"
+      );
+    };
 
-    flash?.(
-      decision === "approved"
-        ? "Seller approved"
-        : "Seller declined"
-    );
+  /*
+   * ADMIN SELLER APPROVAL
+   */
+  const reviewSeller =
+    async (
+      application,
+      decision
+    ) => {
+      const { error } =
+        await supabase.rpc(
+          "admin_review_seller",
+          {
+            target_user:
+              application.user_id,
+            decision,
+          }
+        );
 
-    await load();
-  };
+      if (error) {
+        Alert.alert(
+          "Approval failed",
+          error.message
+        );
 
+        return;
+      }
+
+      flash?.(
+        decision ===
+          "approved"
+          ? "Seller approved"
+          : "Seller declined"
+      );
+
+      await load();
+    };
+
+  /*
+   * SHIPPING ADDRESS
+   */
   const setAddressField = (
     key,
     value
   ) => {
-    setAddress((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  };
-
-  const saveAddress = async () => {
-    const { error } = await supabase.rpc(
-      "save_my_shipping_address",
-      {
-        address_data: address,
-      }
-    );
-
-    if (error) {
-      Alert.alert(
-        "Could not save address",
-        error.message
-      );
-
-      return;
-    }
-
-    setProfile((current) => ({
-      ...current,
-      shipping_address: address,
-    }));
-
-    flash?.(
-      "Shipping address saved"
+    setAddress(
+      (current) => ({
+        ...current,
+        [key]: value,
+      })
     );
   };
 
-  const connectStripe = async () => {
-    setStripeBusy(true);
-
-    try {
-      const data =
-        await invokeMarketplace({
-          action: "connect_onboarding",
-        });
-
-      if (!data?.url) {
-        throw new Error(
-          "Stripe did not return a financial setup link."
+  const saveAddress =
+    async () => {
+      const { error } =
+        await supabase.rpc(
+          "save_my_shipping_address",
+          {
+            address_data:
+              address,
+          }
         );
+
+      if (error) {
+        Alert.alert(
+          "Could not save address",
+          error.message
+        );
+
+        return;
       }
 
-      await Linking.openURL(
-        data.url
+      setProfile(
+        (current) => ({
+          ...current,
+          shipping_address:
+            address,
+        })
       );
-    } catch (error) {
-      Alert.alert(
-        "Financial setup failed",
-        error.message
-      );
-    } finally {
-      setStripeBusy(false);
-    }
-  };
 
-  const refreshStripe = useCallback(
-    async (showMessage = true) => {
+      flash?.(
+        "Shipping address saved"
+      );
+    };
+
+  /*
+   * STRIPE CONNECT
+   */
+  const connectStripe =
+    async () => {
       setStripeBusy(true);
 
       try {
         const data =
-          await invokeMarketplace({
-            action: "connect_status",
-          });
+          await invokeMarketplace(
+            {
+              action:
+                "connect_onboarding",
+            }
+          );
 
-        setStripeStatus(data);
-
-        setProfile((current) => ({
-          ...current,
-          stripe_onboarding_complete:
-            !!data.complete,
-          payouts_enabled:
-            !!data.payoutsEnabled,
-        }));
-
-        if (showMessage) {
-          Alert.alert(
-            data.complete
-              ? "Financial setup ready"
-              : "Setup incomplete",
-            data.complete
-              ? "Your Stripe account is ready to receive approved seller payouts."
-              : data.currentlyDue?.length
-              ? `${data.currentlyDue.length} Stripe requirement(s) still need attention.`
-              : "Stripe has not fully enabled this seller account yet."
+        if (!data?.url) {
+          throw new Error(
+            "Stripe did not return a financial setup link."
           );
         }
+
+        await Linking.openURL(
+          data.url
+        );
       } catch (error) {
-        if (showMessage) {
-          Alert.alert(
-            "Could not check setup",
-            error.message
-          );
-        }
+        Alert.alert(
+          "Financial setup failed",
+          error.message
+        );
       } finally {
         setStripeBusy(false);
       }
-    },
-    [setProfile]
-  );
+    };
+
+  const refreshStripe =
+    useCallback(
+      async (
+        showMessage = true
+      ) => {
+        setStripeBusy(true);
+
+        try {
+          const data =
+            await invokeMarketplace(
+              {
+                action:
+                  "connect_status",
+              }
+            );
+
+          setStripeStatus(
+            data
+          );
+
+          setProfile(
+            (current) => ({
+              ...current,
+
+              stripe_onboarding_complete:
+                !!data.complete,
+
+              payouts_enabled:
+                !!data.payoutsEnabled,
+            })
+          );
+
+          if (showMessage) {
+            Alert.alert(
+              data.complete
+                ? "Financial setup ready"
+                : "Setup incomplete",
+
+              data.complete
+                ? "Your Stripe account is ready to receive approved seller payouts."
+                : data
+                    .currentlyDue
+                    ?.length
+                ? `${data.currentlyDue.length} Stripe requirement(s) still need attention.`
+                : "Stripe has not fully enabled this seller account yet."
+            );
+          }
+        } catch (error) {
+          if (showMessage) {
+            Alert.alert(
+              "Could not check setup",
+              error.message
+            );
+          }
+        } finally {
+          setStripeBusy(
+            false
+          );
+        }
+      },
+      [setProfile]
+    );
 
   useEffect(() => {
-    if (page !== "sellerSetup") {
+    if (
+      page !==
+      "sellerSetup"
+    ) {
       return;
     }
 
@@ -426,164 +754,234 @@ export default function AccountScreen({
       AppState.addEventListener(
         "change",
         (state) => {
-          if (state === "active") {
-            refreshStripe(false);
+          if (
+            state ===
+            "active"
+          ) {
+            refreshStripe(
+              false
+            );
           }
         }
       );
 
-    return () => listener.remove();
-  }, [page, refreshStripe]);
+    return () =>
+      listener.remove();
+  }, [
+    page,
+    refreshStripe,
+  ]);
 
-  const markDelivered = async (
+  /*
+   * ADMIN DELIVERY
+   */
+  const markDelivered =
+    async (payout) => {
+      setPayoutBusy(
+        payout.id
+      );
+
+      try {
+        const data =
+          await invokeMarketplace(
+            {
+              action:
+                "admin_mark_delivered",
+
+              orderId:
+                payout.order_id,
+
+              delayHours:
+                48,
+            }
+          );
+
+        flash?.(
+          "Order marked delivered"
+        );
+
+        Alert.alert(
+          "Delivery confirmed",
+
+          `Seller payout becomes eligible on ${new Date(
+            data.payoutEligibleAt
+          ).toLocaleString()}.`
+        );
+
+        await load();
+      } catch (error) {
+        Alert.alert(
+          "Could not confirm delivery",
+          error.message
+        );
+      } finally {
+        setPayoutBusy(null);
+      }
+    };
+
+  /*
+   * ADMIN PAY SELLER
+   */
+  const paySeller = (
     payout
   ) => {
-    setPayoutBusy(payout.id);
-
-    try {
-      const data =
-        await invokeMarketplace({
-          action:
-            "admin_mark_delivered",
-          orderId: payout.order_id,
-          delayHours: 48,
-        });
-
-      flash?.(
-        "Order marked delivered"
-      );
-
-      Alert.alert(
-        "Delivery confirmed",
-        `Seller payout becomes eligible on ${new Date(
-          data.payoutEligibleAt
-        ).toLocaleString()}.`
-      );
-
-      await load();
-    } catch (error) {
-      Alert.alert(
-        "Could not confirm delivery",
-        error.message
-      );
-    } finally {
-      setPayoutBusy(null);
-    }
-  };
-
-  const paySeller = (payout) => {
     Alert.alert(
       "Pay seller?",
+
       `Transfer ${money(
         payout.amount
       )} to this seller?`,
+
       [
         {
           text: "Cancel",
           style: "cancel",
         },
+
         {
-          text: "Pay seller",
-          onPress: async () => {
-            setPayoutBusy(
-              payout.id
-            );
+          text:
+            "Pay seller",
 
-            try {
-              const data =
-                await invokeMarketplace({
-                  action:
-                    "admin_pay_payout",
-                  payoutRequestId:
-                    payout.id,
-                });
-
-              Alert.alert(
-                "Payout sent",
-                `${money(
-                  data?.amount ||
-                    payout.amount
-                )} was transferred to the seller.`
+          onPress:
+            async () => {
+              setPayoutBusy(
+                payout.id
               );
 
-              flash?.(
-                "Seller payout sent"
-              );
+              try {
+                const data =
+                  await invokeMarketplace(
+                    {
+                      action:
+                        "admin_pay_payout",
 
-              await load();
-            } catch (error) {
-              Alert.alert(
-                "Payout failed",
-                error.message
-              );
-            } finally {
-              setPayoutBusy(null);
-            }
-          },
+                      payoutRequestId:
+                        payout.id,
+                    }
+                  );
+
+                Alert.alert(
+                  "Payout sent",
+
+                  `${money(
+                    data?.amount ||
+                      payout.amount
+                  )} was transferred to the seller.`
+                );
+
+                flash?.(
+                  "Seller payout sent"
+                );
+
+                await load();
+              } catch (
+                error
+              ) {
+                Alert.alert(
+                  "Payout failed",
+                  error.message
+                );
+              } finally {
+                setPayoutBusy(
+                  null
+                );
+              }
+            },
         },
       ]
     );
   };
 
+  /*
+   * ADMIN REJECT PAYOUT
+   */
   const rejectPayout = (
     payout
   ) => {
     Alert.alert(
       "Reject payout?",
+
       "This payout request will be rejected.",
+
       [
         {
           text: "Cancel",
           style: "cancel",
         },
+
         {
           text: "Reject",
-          style: "destructive",
-          onPress: async () => {
-            setPayoutBusy(
-              payout.id
-            );
+          style:
+            "destructive",
 
-            try {
-              await invokeMarketplace({
-                action:
-                  "admin_reject_payout",
-                payoutRequestId:
-                  payout.id,
-                reason:
-                  "Payout request rejected by administrator",
-              });
-
-              flash?.(
-                "Payout rejected"
+          onPress:
+            async () => {
+              setPayoutBusy(
+                payout.id
               );
 
-              await load();
-            } catch (error) {
-              Alert.alert(
-                "Could not reject payout",
-                error.message
-              );
-            } finally {
-              setPayoutBusy(null);
-            }
-          },
+              try {
+                await invokeMarketplace(
+                  {
+                    action:
+                      "admin_reject_payout",
+
+                    payoutRequestId:
+                      payout.id,
+
+                    reason:
+                      "Payout request rejected by administrator",
+                  }
+                );
+
+                flash?.(
+                  "Payout rejected"
+                );
+
+                await load();
+              } catch (
+                error
+              ) {
+                Alert.alert(
+                  "Could not reject payout",
+                  error.message
+                );
+              } finally {
+                setPayoutBusy(
+                  null
+                );
+              }
+            },
         },
       ]
     );
   };
 
-  if (page !== "main") {
+  /*
+   * SUB PAGES
+   */
+  if (
+    page !== "main"
+  ) {
     const titles = {
-      orders: "MY ORDERS",
-      shipping: "PACK & SHIP",
+      orders:
+        "MY ORDERS",
+
+      shipping:
+        "PACK & SHIP",
+
       sellerSetup:
         "FINANCIAL SETUP",
+
       address:
         "SHIPPING ADDRESS",
-      following: "FOLLOWING",
+
+      following:
+        "FOLLOWING",
+
       approvals:
         "SELLER APPROVALS",
+
       payouts:
         "SELLER PAYOUTS",
     };
@@ -595,31 +993,49 @@ export default function AccountScreen({
           setPage("main")
         }
       >
-        {page === "orders" &&
+        {page ===
+          "orders" &&
           (!orders.length ? (
-            <Empty title="No orders yet" />
+            <Empty
+              title="No orders yet"
+            />
           ) : (
             orders.map(
               (order) => (
                 <BuyerOrder
-                  key={order.id}
-                  order={order}
-                  refresh={load}
+                  key={
+                    order.id
+                  }
+                  order={
+                    order
+                  }
+                  refresh={
+                    load
+                  }
                 />
               )
             )
           ))}
 
-        {page === "shipping" &&
+        {page ===
+          "shipping" &&
           (!sellerOrders.length ? (
-            <Empty title="No seller orders yet" />
+            <Empty
+              title="No seller orders yet"
+            />
           ) : (
             sellerOrders.map(
               (order) => (
                 <SellerOrder
-                  key={order.id}
-                  order={order}
-                  refresh={load}
+                  key={
+                    order.id
+                  }
+                  order={
+                    order
+                  }
+                  refresh={
+                    load
+                  }
                 />
               )
             )
@@ -627,21 +1043,33 @@ export default function AccountScreen({
 
         {page ===
           "sellerSetup" && (
-          <View style={s.panel}>
-            <Text style={s.section}>
-              Stripe financial setup
+          <View
+            style={s.panel}
+          >
+            <Text
+              style={
+                s.section
+              }
+            >
+              Stripe financial
+              setup
             </Text>
 
-            <Text style={s.muted}>
-              Stripe securely collects
-              your bank, tax, and
-              identity information.
-              Buyer payments are
-              collected by E&T Auctions.
-              Approved seller payouts
-              are later transferred to
-              the seller's connected
-              Stripe account.
+            <Text
+              style={s.muted}
+            >
+              Stripe securely
+              collects your bank,
+              tax, and identity
+              information. Buyer
+              payments are
+              collected by E&T
+              Auctions. Approved
+              seller payouts are
+              later transferred to
+              the seller's
+              connected Stripe
+              account.
             </Text>
 
             <Stat
@@ -682,13 +1110,16 @@ export default function AccountScreen({
               ?.disabledReason && (
               <Text
                 style={{
-                  color: C.red,
-                  marginTop: 8,
+                  color:
+                    C.red,
+                  marginTop:
+                    8,
                 }}
               >
                 Stripe status:{" "}
                 {String(
-                  stripeStatus.disabledReason
+                  stripeStatus
+                    .disabledReason
                 ).replaceAll(
                   "_",
                   " "
@@ -698,32 +1129,46 @@ export default function AccountScreen({
 
             {stripeStatus
               ?.currentlyDue
-              ?.length >
-              0 && (
+              ?.length > 0 && (
               <View
-                style={s.warning}
+                style={
+                  s.warning
+                }
               >
                 <Text
-                  style={s.title}
+                  style={
+                    s.title
+                  }
                 >
-                  Information still
-                  required
+                  Information
+                  still required
                 </Text>
 
                 <Text
-                  style={s.muted}
+                  style={
+                    s.muted
+                  }
                 >
                   {stripeStatus.currentlyDue
-                    .map((item) =>
-                      String(item)
-                        .split(".")
-                        .pop()
-                        .replaceAll(
-                          "_",
-                          " "
+                    .map(
+                      (
+                        item
+                      ) =>
+                        String(
+                          item
                         )
+                          .split(
+                            "."
+                          )
+                          .pop()
+                          .replaceAll(
+                            "_",
+                            " "
+                          )
                     )
-                    .join(", ")}
+                    .join(
+                      ", "
+                    )}
                 </Text>
               </View>
             )}
@@ -756,22 +1201,34 @@ export default function AccountScreen({
                   : "Refresh setup status"
               }
               onPress={() =>
-                refreshStripe(true)
+                refreshStripe(
+                  true
+                )
               }
             />
           </View>
         )}
 
-        {page === "address" && (
-          <View style={s.panel}>
-            <Text style={s.section}>
+        {page ===
+          "address" && (
+          <View
+            style={s.panel}
+          >
+            <Text
+              style={
+                s.section
+              }
+            >
               Shipping address
             </Text>
 
-            <Text style={s.muted}>
-              Buyers use this as their
-              delivery address. Sellers
-              use it as the return
+            <Text
+              style={s.muted}
+            >
+              Buyers use this as
+              their delivery
+              address. Sellers use
+              it as the return
               address for shipping
               labels.
             </Text>
@@ -779,7 +1236,8 @@ export default function AccountScreen({
             <Field
               label="Full name"
               value={
-                address.name || ""
+                address.name ||
+                ""
               }
               onChangeText={(
                 value
@@ -794,7 +1252,8 @@ export default function AccountScreen({
             <Field
               label="Street address"
               value={
-                address.street1 || ""
+                address.street1 ||
+                ""
               }
               onChangeText={(
                 value
@@ -809,7 +1268,8 @@ export default function AccountScreen({
             <Field
               label="City"
               value={
-                address.city || ""
+                address.city ||
+                ""
               }
               onChangeText={(
                 value
@@ -824,7 +1284,8 @@ export default function AccountScreen({
             <Field
               label="State"
               value={
-                address.state || ""
+                address.state ||
+                ""
               }
               onChangeText={(
                 value
@@ -839,7 +1300,8 @@ export default function AccountScreen({
             <Field
               label="ZIP code"
               value={
-                address.zip || ""
+                address.zip ||
+                ""
               }
               keyboardType="number-pad"
               onChangeText={(
@@ -855,7 +1317,8 @@ export default function AccountScreen({
             <Field
               label="Phone"
               value={
-                address.phone || ""
+                address.phone ||
+                ""
               }
               keyboardType="phone-pad"
               onChangeText={(
@@ -880,7 +1343,9 @@ export default function AccountScreen({
         {page ===
           "following" &&
           (!following.length ? (
-            <Empty title="You are not following sellers yet" />
+            <Empty
+              title="You are not following sellers yet"
+            />
           ) : (
             following.map(
               (item) => (
@@ -894,7 +1359,8 @@ export default function AccountScreen({
                 >
                   <Text
                     style={{
-                      fontSize: 24,
+                      fontSize:
+                        24,
                       color:
                         C.orange,
                     }}
@@ -910,12 +1376,14 @@ export default function AccountScreen({
                       },
                     ]}
                   >
-                    {item.profiles
+                    {item
+                      .profiles
                       ?.display_name ||
                       "Seller"}
                   </Text>
 
-                  {item.profiles
+                  {item
+                    .profiles
                     ?.seller_approved && (
                     <Text
                       style={
@@ -933,10 +1401,14 @@ export default function AccountScreen({
         {page ===
           "approvals" &&
           (!applications.length ? (
-            <Empty title="No seller requests waiting" />
+            <Empty
+              title="No seller requests waiting"
+            />
           ) : (
             applications.map(
-              (application) => (
+              (
+                application
+              ) => (
                 <View
                   key={
                     application.user_id
@@ -961,12 +1433,15 @@ export default function AccountScreen({
                       s.muted
                     }
                   >
-                    Seller application
+                    Seller
+                    application
                     pending
                   </Text>
 
                   <View
-                    style={s.row}
+                    style={
+                      s.row
+                    }
                   >
                     <Button
                       small
@@ -996,18 +1471,26 @@ export default function AccountScreen({
             )
           ))}
 
-        {page === "payouts" &&
+        {page ===
+          "payouts" &&
           (!payouts.length ? (
-            <Empty title="No payout requests" />
+            <Empty
+              title="No payout requests"
+            />
           ) : (
             payouts.map(
               (payout) => (
                 <AdminPayoutCard
-                  key={payout.id}
-                  payout={payout}
+                  key={
+                    payout.id
+                  }
+                  payout={
+                    payout
+                  }
                   order={
                     payoutOrders[
-                      payout.order_id
+                      payout
+                        .order_id
                     ]
                   }
                   busy={
@@ -1031,28 +1514,35 @@ export default function AccountScreen({
     );
   }
 
+  /*
+   * MAIN ACCOUNT PAGE
+   */
   const pendingPayouts =
-    payouts.filter((item) =>
-      [
-        "pending",
-        "approved",
-      ].includes(
-        String(
-          item.status || ""
-        ).toLowerCase()
-      )
+    payouts.filter(
+      (item) =>
+        [
+          "pending",
+          "approved",
+        ].includes(
+          String(
+            item.status ||
+              ""
+          ).toLowerCase()
+        )
     ).length;
 
   const shippingCount =
-    sellerOrders.filter((order) =>
-      [
-        "paid",
-        "packed",
-      ].includes(
-        String(
-          order.status || ""
-        ).toLowerCase()
-      )
+    sellerOrders.filter(
+      (order) =>
+        [
+          "paid",
+          "packed",
+        ].includes(
+          String(
+            order.status ||
+              ""
+          ).toLowerCase()
+        )
     ).length;
 
   return (
@@ -1081,8 +1571,10 @@ export default function AccountScreen({
             borderWidth: 2,
             borderColor:
               C.orange,
+
             alignItems:
               "center",
+
             justifyContent:
               "center",
           }}
@@ -1091,7 +1583,9 @@ export default function AccountScreen({
             style={{
               color:
                 C.orange,
+
               fontSize: 23,
+
               fontWeight:
                 "900",
             }}
@@ -1122,13 +1616,17 @@ export default function AccountScreen({
           {profile
             ?.seller_approved ? (
             <Text
-              style={s.badge}
+              style={
+                s.badge
+              }
             >
               ✓ VERIFIED SELLER
             </Text>
           ) : (
             <Text
-              style={s.muted}
+              style={
+                s.muted
+              }
             >
               Buyer account
             </Text>
@@ -1140,7 +1638,8 @@ export default function AccountScreen({
               style={[
                 s.badge,
                 {
-                  marginTop: 5,
+                  marginTop:
+                    5,
                 },
               ]}
             >
@@ -1160,7 +1659,9 @@ export default function AccountScreen({
         </View>
       </View>
 
-      <View style={s.panel}>
+      <View
+        style={s.panel}
+      >
         <Field
           label="Display name"
           value={name}
@@ -1187,7 +1688,9 @@ export default function AccountScreen({
             : "Required"
         }
         onPress={() =>
-          setPage("address")
+          setPage(
+            "address"
+          )
         }
       />
 
@@ -1198,7 +1701,9 @@ export default function AccountScreen({
           orders.length
         }
         onPress={() =>
-          setPage("orders")
+          setPage(
+            "orders"
+          )
         }
       />
 
@@ -1243,7 +1748,9 @@ export default function AccountScreen({
           following.length
         }
         onPress={() =>
-          setPage("following")
+          setPage(
+            "following"
+          )
         }
       />
 
@@ -1252,7 +1759,9 @@ export default function AccountScreen({
         title="Ratings"
         value={
           rating
-            ? rating.toFixed(1)
+            ? rating.toFixed(
+                1
+              )
             : "—"
         }
       />
@@ -1261,9 +1770,12 @@ export default function AccountScreen({
         "admin" && (
         <>
           <Text
-            style={s.section}
+            style={
+              s.section
+            }
           >
-            Administrator controls
+            Administrator
+            controls
           </Text>
 
           <Link
@@ -1305,6 +1817,9 @@ export default function AccountScreen({
   );
 }
 
+/*
+ * ADMIN PAYOUT CARD
+ */
 function AdminPayoutCard({
   payout,
   order,
@@ -1315,12 +1830,14 @@ function AdminPayoutCard({
 }) {
   const requestStatus =
     String(
-      payout.status || ""
+      payout.status ||
+        ""
     ).toLowerCase();
 
   const orderStatus =
     String(
-      order?.status || ""
+      order?.status ||
+        ""
     ).toLowerCase();
 
   const eligibleDate =
@@ -1345,24 +1862,32 @@ function AdminPayoutCard({
       "completed";
 
   return (
-    <View style={s.panel}>
-      <Text style={s.title}>
+    <View
+      style={s.panel}
+    >
+      <Text
+        style={s.title}
+      >
         {order?.products
           ?.title ||
           "Seller payout request"}
       </Text>
 
-      <Text style={s.muted}>
+      <Text
+        style={s.muted}
+      >
         Order{" "}
         {String(
-          payout.order_id || ""
+          payout.order_id ||
+            ""
         ).slice(0, 8)}
       </Text>
 
       <Stat
         label="Order total"
         value={money(
-          order?.total || 0
+          order?.total ||
+            0
         )}
       />
 
@@ -1377,7 +1902,8 @@ function AdminPayoutCard({
       <Stat
         label="Seller receives"
         value={money(
-          payout.amount || 0
+          payout.amount ||
+            0
         )}
       />
 
@@ -1402,7 +1928,8 @@ function AdminPayoutCard({
           style={[
             s.muted,
             {
-              marginTop: 7,
+              marginTop:
+                7,
             },
           ]}
         >
@@ -1417,8 +1944,10 @@ function AdminPayoutCard({
           style={{
             color:
               C.green,
+
             fontWeight:
               "900",
+
             marginTop: 8,
           }}
         >
@@ -1432,11 +1961,13 @@ function AdminPayoutCard({
           style={{
             color:
               C.red,
+
             marginTop: 8,
           }}
         >
           Rejected
-          {payout.rejection_reason
+          {payout
+            .rejection_reason
             ? `: ${payout.rejection_reason}`
             : ""}
         </Text>
@@ -1451,7 +1982,9 @@ function AdminPayoutCard({
         <>
           {!delivered && (
             <Button
-              disabled={busy}
+              disabled={
+                busy
+              }
               title={
                 busy
                   ? "Updating..."
@@ -1471,19 +2004,23 @@ function AdminPayoutCard({
                 style={[
                   s.muted,
                   {
-                    marginTop: 8,
+                    marginTop:
+                      8,
                   },
                 ]}
               >
-                Payout is held until
-                the eligibility time.
+                Payout is held
+                until the
+                eligibility time.
               </Text>
             )}
 
           {delivered &&
             eligibleNow && (
               <Button
-                disabled={busy}
+                disabled={
+                  busy
+                }
                 title={
                   busy
                     ? "Sending..."
@@ -1492,7 +2029,9 @@ function AdminPayoutCard({
                       )}`
                 }
                 onPress={() =>
-                  onPay(payout)
+                  onPay(
+                    payout
+                  )
                 }
               />
             )}
@@ -1500,10 +2039,14 @@ function AdminPayoutCard({
           <Button
             danger
             ghost
-            disabled={busy}
+            disabled={
+              busy
+            }
             title="Reject payout"
             onPress={() =>
-              onReject(payout)
+              onReject(
+                payout
+              )
             }
           />
         </>
@@ -1512,65 +2055,76 @@ function AdminPayoutCard({
   );
 }
 
+/*
+ * BUYER ORDER CARD
+ */
 function BuyerOrder({
   order,
   refresh,
 }) {
-  const checkout = async () => {
-    try {
-      const data =
-        await invokeMarketplace({
-          action:
-            "create_checkout",
-          orderId:
-            order.id,
-        });
+  const checkout =
+    async () => {
+      try {
+        const data =
+          await invokeMarketplace(
+            {
+              action:
+                "create_checkout",
 
-      if (
-        data?.alreadyPaid
-      ) {
+              orderId:
+                order.id,
+            }
+          );
+
+        if (
+          data?.alreadyPaid
+        ) {
+          Alert.alert(
+            "Already paid",
+            "This order has already been paid."
+          );
+
+          await refresh();
+
+          return;
+        }
+
+        if (!data?.url) {
+          throw new Error(
+            "Stripe checkout link was not returned."
+          );
+        }
+
+        await Linking.openURL(
+          data.url
+        );
+      } catch (error) {
         Alert.alert(
-          "Already paid",
-          "This order has already been paid."
-        );
-
-        await refresh();
-
-        return;
-      }
-
-      if (!data?.url) {
-        throw new Error(
-          "Stripe checkout link was not returned."
+          "Checkout failed",
+          error.message
         );
       }
-
-      await Linking.openURL(
-        data.url
-      );
-    } catch (error) {
-      Alert.alert(
-        "Checkout failed",
-        error.message
-      );
-    }
-  };
+    };
 
   const verifyPayment =
     async () => {
       try {
         const data =
-          await invokeMarketplace({
-            action:
-              "verify_checkout",
-            orderId:
-              order.id,
-          });
+          await invokeMarketplace(
+            {
+              action:
+                "verify_checkout",
+
+              orderId:
+                order.id,
+            }
+          );
 
         Alert.alert(
           data?.paid
             ? "Payment received"
             : "Payment not completed",
+
           data?.paid
             ? "Your payment was confirmed. The seller can now prepare the order."
             : "Complete Stripe checkout and then check again."
@@ -1605,7 +2159,9 @@ function BuyerOrder({
   };
 
   return (
-    <View style={s.panel}>
+    <View
+      style={s.panel}
+    >
       <View
         style={s.between}
       >
@@ -1626,7 +2182,9 @@ function BuyerOrder({
         </Text>
       </View>
 
-      <Text style={s.muted}>
+      <Text
+        style={s.muted}
+      >
         Status:{" "}
         {String(
           order.status ||
@@ -1636,6 +2194,34 @@ function BuyerOrder({
           " "
         )}
       </Text>
+
+      {Number(
+        order.subtotal ||
+          0
+      ) > 0 && (
+        <Text
+          style={s.muted}
+        >
+          Item total:{" "}
+          {money(
+            order.subtotal
+          )}
+        </Text>
+      )}
+
+      {Number(
+        order.shipping_total ||
+          0
+      ) > 0 && (
+        <Text
+          style={s.muted}
+        >
+          Shipping:{" "}
+          {money(
+            order.shipping_total
+          )}
+        </Text>
+      )}
 
       {order.status ===
         "payment_due" && (
@@ -1663,8 +2249,7 @@ function BuyerOrder({
           <Text
             style={s.text}
           >
-            {order
-              .shipping_carrier ||
+            {order.shipping_carrier ||
               "Carrier"}
             :{" "}
             {
@@ -1685,6 +2270,9 @@ function BuyerOrder({
   );
 }
 
+/*
+ * SELLER ORDER CARD
+ */
 function SellerOrder({
   order,
   refresh,
@@ -1716,14 +2304,19 @@ function SellerOrder({
     async () => {
       try {
         const data =
-          await invokeMarketplace({
-            action:
-              "buy_label",
-            orderId:
-              order.id,
-          });
+          await invokeMarketplace(
+            {
+              action:
+                "buy_label",
 
-        if (!data?.labelUrl) {
+              orderId:
+                order.id,
+            }
+          );
+
+        if (
+          !data?.labelUrl
+        ) {
           throw new Error(
             "Shipping label URL was not returned."
           );
@@ -1743,7 +2336,9 @@ function SellerOrder({
     };
 
   return (
-    <View style={s.panel}>
+    <View
+      style={s.panel}
+    >
       <View
         style={s.between}
       >
@@ -1764,7 +2359,9 @@ function SellerOrder({
         </Text>
       </View>
 
-      <Text style={s.muted}>
+      <Text
+        style={s.muted}
+      >
         Status:{" "}
         {String(
           order.status ||
@@ -1776,7 +2373,8 @@ function SellerOrder({
       </Text>
 
       {Number(
-        order.seller_payout_amount ||
+        order
+          .seller_payout_amount ||
           0
       ) > 0 && (
         <>
@@ -1785,7 +2383,8 @@ function SellerOrder({
           >
             Seller receives:{" "}
             {money(
-              order.seller_payout_amount
+              order
+                .seller_payout_amount
             )}
           </Text>
 
@@ -1836,6 +2435,9 @@ function SellerOrder({
   );
 }
 
+/*
+ * ACCOUNT LINK ROW
+ */
 function Link({
   icon,
   title,
@@ -1855,7 +2457,8 @@ function Link({
       <Text
         style={{
           fontSize: 21,
-          color: C.orange,
+          color:
+            C.orange,
           width: 28,
         }}
       >
@@ -1882,6 +2485,9 @@ function Link({
   );
 }
 
+/*
+ * SUB PAGE WRAPPER
+ */
 function SubPage({
   title,
   back,
@@ -1920,6 +2526,105 @@ function SubPage({
   );
 }
 
+/*
+ * LOAD PRODUCT NAMES SEPARATELY
+ *
+ * This prevents an orders query
+ * from failing because of a
+ * PostgREST relationship problem.
+ */
+async function addProductTitles(
+  rows
+) {
+  if (
+    !Array.isArray(rows) ||
+    !rows.length
+  ) {
+    return [];
+  }
+
+  const productIds = [
+    ...new Set(
+      rows
+        .map(
+          (row) =>
+            row.product_id
+        )
+        .filter(Boolean)
+    ),
+  ];
+
+  if (
+    !productIds.length
+  ) {
+    return rows.map(
+      (row) => ({
+        ...row,
+        products: null,
+      })
+    );
+  }
+
+  const {
+    data,
+    error,
+  } = await supabase
+    .from("products")
+    .select(
+      "id,title"
+    )
+    .in(
+      "id",
+      productIds
+    );
+
+  if (error) {
+    console.error(
+      "PRODUCT_TITLE_LOAD_ERROR:",
+      error
+    );
+
+    /*
+     * IMPORTANT:
+     * Even if product title lookup
+     * fails, the order still remains
+     * visible to the buyer.
+     */
+    return rows.map(
+      (row) => ({
+        ...row,
+        products: null,
+      })
+    );
+  }
+
+  const productsById =
+    {};
+
+  for (
+    const product of
+    data || []
+  ) {
+    productsById[
+      product.id
+    ] = product;
+  }
+
+  return rows.map(
+    (row) => ({
+      ...row,
+
+      products:
+        productsById[
+          row.product_id
+        ] || null,
+    })
+  );
+}
+
+/*
+ * MARKETPLACE EDGE FUNCTION HELPER
+ */
 async function invokeMarketplace(
   body
 ) {
