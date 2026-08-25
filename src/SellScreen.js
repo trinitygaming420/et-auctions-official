@@ -1,20 +1,47 @@
-import React,{useCallback,useEffect,useState}from"react";
-import{Alert,Image,Modal,Pressable,SafeAreaView,ScrollView,Text,View}from"react-native";
-import*as ImagePicker from"expo-image-picker";
-import{colors as C,money,supabase}from"./config";
-import{Button,Field,Header,Stat,s}from"./ui";
-import LiveVideo from"./LiveVideo";
+const endLive = async () => {
+  if (product) {
+    Alert.alert(
+      "Auction running",
+      "Wait for the current product auction to finish before ending the live."
+    );
+    return;
+  }
 
-const blank={title:"",description:"",quantity:"1",bid:"",weight:"8",length:"8",width:"6",height:"4"};
-const payload=(x,user,show,temp=false)=>({seller_id:user.id,show_id:show,title:x.title.trim(),description:x.description.trim(),stock:Number(x.quantity),starting_bid:Number(x.bid),price:Number(x.bid),weight_oz:Number(x.weight),length_in:Number(x.length),width_in:Number(x.width),height_in:Number(x.height),status:"active",is_temporary:temp});
-export default function SellScreen({profile,user,flash}){
- const[shows,setShows]=useState([]),[schedule,setSchedule]=useState(false),[manage,setManage]=useState(null),[host,setHost]=useState(null),[stats,setStats]=useState({listings:0,live:0,ship:0});
- const load=useCallback(async()=>{const[{data},{count:a},{count:b},{count:c}]=await Promise.all([supabase.from("shows").select("*").eq("seller_id",user.id).eq("status","scheduled").order("starts_at"),supabase.from("products").select("id",{head:true,count:"exact"}).eq("seller_id",user.id),supabase.from("shows").select("id",{head:true,count:"exact"}).eq("seller_id",user.id).eq("status","live"),supabase.from("orders").select("id",{head:true,count:"exact"}).eq("seller_id",user.id).in("status",["paid","packed"])]);setShows(data||[]);setStats({listings:a||0,live:b||0,ship:c||0})},[user.id]);useEffect(()=>{load()},[load]);
- const approved=fn=>profile?.seller_approved?fn():Alert.alert("Approval required","Your seller account must be approved first.");
- const go=async show=>{const{data,error}=await supabase.from("shows").update({status:"live",current_product_id:null,auction_ends_at:null}).eq("id",show.id).select().single();if(error)return Alert.alert("Show error",error.message);setManage(null);setHost(data)};
- return <ScrollView contentContainerStyle={s.page}><Header title="SELLER HUB" subtitle="Schedule shows and load auction inventory" profile={profile}/><Button title="Schedule a Show" onPress={()=>approved(()=>setSchedule(true))}/><View style={s.panel}><Text style={s.section}>Upcoming shows</Text>{shows.length?shows.map(x=><View key={x.id} style={s.activity}><View style={{flex:1}}><Text style={s.title}>{x.title}</Text><Text style={s.muted}>{new Date(x.starts_at).toLocaleString()} · {x.category}</Text><Text style={s.badge}>{(x.tags||[]).map(t=>`#${t}`).join(" ")}</Text></View><Button small title="Open" onPress={()=>setManage(x)}/></View>):<Text style={s.muted}>No upcoming shows.</Text>}</View><View style={s.panel}><Text style={s.section}>Today's tasks</Text><Stat label="Loaded products" value={stats.listings}/><Stat label="Live shows" value={stats.live}/><Stat label="Orders to ship" value={stats.ship}/></View>{schedule&&<Scheduler user={user} flash={flash} close={()=>{setSchedule(false);load()}} go={go}/>} {manage&&<Manager show={manage} user={user} flash={flash} close={()=>{setManage(null);load()}} go={()=>go(manage)}/>} {host&&<Host show={host} user={user} flash={flash} end={()=>{setHost(null);load()}}/>}</ScrollView>;
-}
-function Scheduler({user,flash,close,go}){const[x,setX]=useState({title:"",category:"Electronics",tags:""}),[photo,setPhoto]=useState(null),[busy,setBusy]=useState(false);const set=(k,v)=>setX(q=>({...q,[k]:v}));const pick=async()=>{const p=await ImagePicker.requestMediaLibraryPermissionsAsync();if(!p.granted)return Alert.alert("Permission required","Allow photo access for show thumbnails.");const r=await ImagePicker.launchImageLibraryAsync({mediaTypes:ImagePicker.MediaTypeOptions.Images,allowsEditing:true,aspect:[16,9],quality:.8});if(!r.canceled)setPhoto(r.assets[0])};const save=async()=>{if(!x.title.trim())return Alert.alert("Missing details","Enter a show title.");setBusy(true);try{let cover_url=null;if(photo){const body=await(await fetch(photo.uri)).arrayBuffer(),path=`${user.id}/shows/${Date.now()}.jpg`;const{error:e}=await supabase.storage.from("show-media").upload(path,body,{contentType:photo.mimeType||"image/jpeg"});if(e)throw e;cover_url=supabase.storage.from("show-media").getPublicUrl(path).data.publicUrl}const{data,error}=await supabase.from("shows").insert({seller_id:user.id,title:x.title.trim(),category:x.category,tags:x.tags.split(",").map(t=>t.trim()).filter(Boolean),cover_url,starts_at:new Date().toISOString(),status:"scheduled",room_name:`show_${user.id.slice(0,8)}_${Date.now()}`}).select().single();if(error)throw error;flash("Starting livestream");close();await go(data)}catch(e){Alert.alert("Go-live error",e.message)}finally{setBusy(false)}};return <Modal visible animationType="slide"><SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.logo}>Start a Show</Text><Field label="Catchy title" value={x.title} onChangeText={v=>set("title",v)}/><Field label="Category" value={x.category} onChangeText={v=>set("category",v)}/><Field label="Search tags, separated by commas" value={x.tags} onChangeText={v=>set("tags",v)}/><Pressable onPress={pick} style={s.panel}>{photo?<Image source={{uri:photo.uri}} style={{width:"100%",height:180,borderRadius:12}}/>:<><Text style={s.title}>＋ Add show thumbnail</Text><Text style={s.muted}>Choose an eye-catching 16:9 photo.</Text></>}</Pressable><Button disabled={busy} title={busy?"Starting…":"Go live now"} onPress={save}/><Button ghost title="Cancel" onPress={close}/></ScrollView></SafeAreaView></Modal>}
-function ItemForm({save,busy,temp=false}){const[x,setX]=useState(blank);const set=(k,v)=>setX(q=>({...q,[k]:v}));return <View style={s.panel}><Text style={s.section}>{temp?"Temporary live listing":"Add product"}</Text><Field label="Title" value={x.title} onChangeText={v=>set("title",v)}/><Field label="Description" value={x.description} onChangeText={v=>set("description",v)}/><View style={s.row}><View style={{flex:1}}><Field label="Quantity" value={x.quantity} onChangeText={v=>set("quantity",v)} keyboardType="number-pad"/></View><View style={{flex:1}}><Field label="Starting price" value={x.bid} onChangeText={v=>set("bid",v)} keyboardType="decimal-pad"/></View></View><Field label="Shipping weight (oz)" value={x.weight} onChangeText={v=>set("weight",v)} keyboardType="decimal-pad"/><View style={s.row}>{["length","width","height"].map(k=><View key={k} style={{flex:1}}><Field label={k} value={x[k]} onChangeText={v=>set(k,v)} keyboardType="decimal-pad"/></View>)}</View><Button disabled={busy} title={temp?"Create and run":"Add to show"} onPress={()=>save(x)}/></View>}
-function Manager({show,user,flash,close,go}){const[items,setItems]=useState([]),[form,setForm]=useState(false),[busy,setBusy]=useState(false);const load=useCallback(async()=>{const{data}=await supabase.from("products").select("*").eq("show_id",show.id);setItems(data||[])},[show.id]);useEffect(()=>{load()},[load]);const save=async x=>{if(!x.title||!x.bid)return Alert.alert("Missing product","Enter title and starting price.");setBusy(true);const{error}=await supabase.from("products").insert(payload(x,user,show.id));setBusy(false);if(error)return Alert.alert("Product error",error.message);flash("Product loaded");setForm(false);load()};return <Modal visible animationType="slide"><SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.page}><Text style={s.logo}>{show.title}</Text><Text style={s.muted}>{new Date(show.starts_at).toLocaleString()}</Text><View style={s.panel}><Text style={s.section}>Preloaded products</Text>{items.map(i=><View key={i.id} style={s.stat}><Text style={s.title}>{i.title}</Text><Text style={s.price}>{money(i.starting_bid)}</Text></View>)}<Button ghost title={form?"Close":"＋ Add product"} onPress={()=>setForm(v=>!v)}/></View>{form&&<ItemForm busy={busy} save={save}/>}<Button title="Go live now" onPress={go}/><Button ghost title="Back" onPress={close}/></ScrollView></SafeAreaView></Modal>}
-function Host({show,user,flash,end}){const[items,setItems]=useState([]),[product,setProduct]=useState(null),[menu,setMenu]=useState(false),[form,setForm]=useState(false),[busy,setBusy]=useState(false),[ends,setEnds]=useState(null),[left,setLeft]=useState(0),[duration,setDuration]=useState("15"),[camera,setCamera]=useState(null);const load=useCallback(async()=>{const{data}=await supabase.from("products").select("*").eq("show_id",show.id).eq("status","active");setItems(data||[])},[show.id]);useEffect(()=>{load()},[load]);const run=async i=>{const e=new Date(Date.now()+Number(duration)*1000).toISOString();const{error}=await supabase.from("shows").update({current_product_id:i.id,auction_ends_at:e}).eq("id",show.id);if(error)return Alert.alert("Auction error",error.message);setProduct(i);setEnds(e);setMenu(false)};const finish=useCallback(async()=>{if(!product||busy)return;setBusy(true);const{error}=await supabase.rpc("finish_live_product_auction",{target_show:show.id,target_product:product.id});setBusy(false);if(error&&!error.message.includes("still running"))return Alert.alert("Auction error",error.message);setProduct(null);setEnds(null);load()},[product,busy,show.id,load]);useEffect(()=>{if(!ends)return;const t=setInterval(()=>{const n=Math.max(0,Math.ceil((new Date(ends)-Date.now())/1000));setLeft(n);if(!n)finish()},250);return()=>clearInterval(t)},[ends,finish]);const temp=async x=>{setBusy(true);const{data,error}=await supabase.from("products").insert(payload(x,user,show.id,true)).select().single();setBusy(false);if(error)return Alert.alert("Product error",error.message);run(data)};const endLive=async()=>{if(product)return Alert.alert("Auction running","Wait for zero.");const{error}=await supabase.from("shows").update({status:"ended",ended_at:new Date().toISOString()}).eq("id",show.id);if(error)return Alert.alert("End error",error.message);end()};return <Modal visible><SafeAreaView style={s.safe}><View style={s.modalHeader}><Text style={s.logo}>YOU ARE LIVE · {show.title}</Text></View><LiveVideo room={show.room_name} user={user} host onCameraController={setCamera}/><ScrollView contentContainerStyle={[s.page,{paddingBottom:120}]}>{product?<View style={s.panel}><Text style={s.logo}>{product.title}</Text><Text style={s.price}>{left}s · {money(product.starting_bid)}</Text><Text style={s.muted}>Ends automatically. Each bid adds 3 seconds.</Text></View>:<View style={s.panel}><Text style={s.section}>No product running</Text></View>}{menu&&!product&&<View style={s.panel}><Text style={s.section}>Product menu</Text><Field label="Timer seconds" value={duration} onChangeText={setDuration} keyboardType="number-pad"/>{items.map(i=><View key={i.id} style={s.activity}><View style={{flex:1}}><Text style={s.title}>{i.title}</Text><Text style={s.muted}>{money(i.starting_bid)}</Text></View><Button small title="Run" onPress={()=>run(i)}/></View>)}<Button ghost title={form?"Close listing":"＋ Temporary listing"} onPress={()=>setForm(v=>!v)}/></View>}{menu&&form&&!product&&<ItemForm temp busy={busy} save={temp}/>}</ScrollView><View style={s.nav}><View style={{flex:1}}><Button ghost title="⟳ Camera" onPress={()=>camera?.()}/></View><View style={{flex:1}}><Button ghost title="▣ Products" onPress={()=>setMenu(v=>!v)}/></View><View style={{flex:1}}><Button danger title="End live" onPress={endLive}/></View></View></SafeAreaView></Modal>}
+  setBusy(true);
+
+  try {
+    const { data, error } = await supabase.rpc(
+      "end_my_live_show",
+      {
+        target_show: show.id,
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    const cancelled =
+      Number(data?.cancelledUnpaidOrders || 0);
+
+    if (cancelled > 0) {
+      flash?.(
+        `Live ended · ${cancelled} unpaid sale${
+          cancelled === 1 ? "" : "s"
+        } cancelled`
+      );
+    } else {
+      flash?.("Live ended");
+    }
+
+    end();
+  } catch (error) {
+    Alert.alert(
+      "End live failed",
+      error?.message ||
+        "Could not end the live show."
+    );
+  } finally {
+    setBusy(false);
+  }
+};
