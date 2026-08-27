@@ -31,5 +31,8 @@ jobs:
             npm install
           fi
 
+      - name: Configure EAS project
+        run: eas init --account eandtelectronics-724 --force --non-interactive
+
       - name: Build Production Android AAB
         run: eas build --platform android --profile production --non-interactive --wait
