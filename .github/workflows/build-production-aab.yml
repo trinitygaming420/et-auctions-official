@@ -1,4 +1,4 @@
-name: Build Production AAB
+name: Build Production AAB Free
 
 on:
   workflow_dispatch:
@@ -7,15 +7,22 @@ jobs:
   build-android:
     name: Build Android Production AAB
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: "20"
 
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
@@ -34,5 +41,27 @@ jobs:
       - name: Configure EAS project
         run: eas init --account eandtelectronics-724 --force --non-interactive
 
-      - name: Build Production Android AAB
-        run: eas build --platform android --profile production --non-interactive --wait
+      - name: Build Production Android AAB Free
+        env:
+          EAS_BUILD_NO_EXPO_GO_WARNING: "true"
+        run: |
+          mkdir -p build
+          eas build \
+            --platform android \
+            --profile production \
+            --local \
+            --non-interactive \
+            --output ./build/ET-Auctions-production.aab
+
+      - name: Verify AAB
+        run: |
+          ls -lh ./build
+          test -f ./build/ET-Auctions-production.aab
+
+      - name: Upload Production AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: ET-Auctions-Production-AAB
+          path: ./build/ET-Auctions-production.aab
+          if-no-files-found: error
+          retention-days: 30
