@@ -19,10 +19,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Node
+      - name: Setup Node 24
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Setup Expo and EAS
         uses: expo/expo-github-action@v8
